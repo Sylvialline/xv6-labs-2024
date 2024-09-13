@@ -1,0 +1,41 @@
+#!/usr/bin/env python3
+
+import re
+from gradelib import *
+
+r = Runner(save("xv6.out"))
+
+@test(0, "pgtbltest")
+def test_pgtbltest():
+    r.run_qemu(shell_script([
+        'pgtbltest'
+    ]), timeout=300)
+
+@test(10, "pgtbltest: ugetpid", parent=test_pgtbltest)
+def test_ugetpid_():
+    r.match('^ugetpid_test: OK$')
+
+@test(15, "pgtbltest: superpg", parent=test_pgtbltest)
+def test_superpg_():
+    r.match('^superpg_test: OK$')
+
+@test(5, "answers-pgtbl.txt")
+def test_answers():
+    # just a simple sanity check, will be graded manually
+    check_answers("answers-pgtbl.txt")
+
+@test(0, "usertests")
+def test_usertests():
+    r.run_qemu(shell_script([
+        'usertests -q'
+    ]), timeout=300)
+
+@test(10, "usertests: all tests", parent=test_usertests)
+def test_usertests():
+    r.match('^ALL TESTS PASSED$')
+
+@test(1, "time")
+def test_time():
+    check_time()
+
+run_tests()
