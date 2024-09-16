@@ -132,7 +132,11 @@ superpg_test()
     supercheck(s);
     exit(0);
   } else {
-    wait(0);
+    int status;
+    wait(&status);
+    if (status != 0) {
+      exit(0);
+    }
   }
   printf("superpg_test: OK\n");  
 }

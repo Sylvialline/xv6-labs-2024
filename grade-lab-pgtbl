@@ -15,6 +15,23 @@ def test_pgtbltest():
 def test_ugetpid_():
     r.match('^ugetpid_test: OK$')
 
+@test(10, "pgtbltest: print_kpgtbl", parent=test_pgtbltest)
+def test_print_kpgtbl_():
+    r.match(
+        '^page table 0x',
+        '^ ..0x0000000000000000',
+        '^ .. ..0x0000000000000000',
+        '^ .. .. ..0x0000000000000000',
+        '^ .. .. ..0x0000000000001000',
+        '^ .. .. ..0x0000000000002000',
+        '^ .. .. ..0x0000000000003000',
+        '^ ..0xffffffffc0000000',
+        '^ .. ..0xffffffffffe00000',
+        '^ .. .. ..0xffffffffffffd000',
+        '^ .. .. ..0xffffffffffffe000',
+        '^ .. .. ..0xfffffffffffff000',
+    )
+
 @test(15, "pgtbltest: superpg", parent=test_pgtbltest)
 def test_superpg_():
     r.match('^superpg_test: OK$')
