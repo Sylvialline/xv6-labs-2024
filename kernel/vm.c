@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h" 
 
 /*
  * the kernel's page table.
@@ -14,6 +16,22 @@ pagetable_t kernel_pagetable;
 extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
+
+struct spinlock rcountlock;
+uint8 rcount[PA2IDX(PHYSTOP)]; // reference count of user pagetables to the physical page
+
+// get the reference count of the physical page at pa after adding dx
+// if holding == 0, hold rcountlock to avoid race
+uint8 getrc(uint64 pa, int dx, int holding){
+  uint8 rc;
+  if(pa >= PHYSTOP || pa < KERNBASE)
+    panic("getrc: physical address");
+
+  if(holding == 0) acquire(&rcountlock);
+  rc = (rcount[PA2IDX(pa)] += dx);
+  if(holding == 0) release(&rcountlock);
+  return rc;
+}
 
 // Make a direct-map page table for the kernel.
 pagetable_t
@@ -171,11 +189,39 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   return 0;
 }
 
+// remove a page of mapping starting from va
+// only used to remove trampoline and trapframe page mappings
+// do not free the physical memory
+void
+unmappage(pagetable_t pagetable, uint64 va)
+{
+  pte_t *pte;
+  pte = walk(pagetable, va, 0);
+  if(pte == 0)
+    panic("unmappage: should be mapped");
+  *pte = 0;
+}
+
+// add a mapping to user pagetable use mappages()
+// only map a single page
+// maintain the reference count
+// return 0 on success, -1 on error
+int
+uvmmap(pagetable_t pagetable, uint64 va, uint64 pa, int perm)
+{
+  if(mappages(pagetable, va, PGSIZE, pa, perm) < 0)
+    return -1;
+  getrc(pa, 1, 0);
+  return 0;
+}
+
 // Remove npages of mappings starting from va. va must be
 // page-aligned. The mappings must exist.
-// Optionally free the physical memory.
+// maintain the reference count
+// free the physical memory if reference count becomes zero
+// only used to handle user pages except trampoine or trapframe page
 void
-uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
+uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages)
 {
   uint64 a;
   pte_t *pte;
@@ -190,10 +236,10 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: not mapped");
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
-    if(do_free){
-      uint64 pa = PTE2PA(*pte);
+    uint64 pa = PTE2PA(*pte);
+    uint8 rc = getrc(pa, -1, 0);
+    if(rc == 0)
       kfree((void*)pa);
-    }
     *pte = 0;
   }
 }
@@ -223,7 +269,12 @@ uvmfirst(pagetable_t pagetable, uchar *src, uint sz)
     panic("uvmfirst: more than a page");
   mem = kalloc();
   memset(mem, 0, PGSIZE);
-  mappages(pagetable, 0, PGSIZE, (uint64)mem, PTE_W|PTE_R|PTE_X|PTE_U);
+  // mappages(pagetable, 0, PGSIZE, (uint64)mem, PTE_W|PTE_R|PTE_X|PTE_U);
+
+  initlock(&rcountlock, "rcount");
+
+  if(uvmmap(pagetable, 0, (uint64)mem, PTE_W|PTE_R|PTE_X|PTE_U) < 0)
+    panic("uvmfirst: uvmmap failed");
   memmove(mem, src, sz);
 }
 
@@ -246,7 +297,8 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
       return 0;
     }
     memset(mem, 0, PGSIZE);
-    if(mappages(pagetable, a, PGSIZE, (uint64)mem, PTE_R|PTE_U|xperm) != 0){
+    // if(mappages(pagetable, a, PGSIZE, (uint64)mem, PTE_R|PTE_U|xperm) != 0){
+    if(uvmmap(pagetable, a, (uint64)mem, PTE_R|PTE_U|xperm) != 0){
       kfree(mem);
       uvmdealloc(pagetable, a, oldsz);
       return 0;
@@ -267,7 +319,7 @@ uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 
   if(PGROUNDUP(newsz) < PGROUNDUP(oldsz)){
     int npages = (PGROUNDUP(oldsz) - PGROUNDUP(newsz)) / PGSIZE;
-    uvmunmap(pagetable, PGROUNDUP(newsz), npages, 1);
+    uvmunmap(pagetable, PGROUNDUP(newsz), npages);
   }
 
   return newsz;
@@ -299,7 +351,7 @@ void
 uvmfree(pagetable_t pagetable, uint64 sz)
 {
   if(sz > 0)
-    uvmunmap(pagetable, 0, PGROUNDUP(sz)/PGSIZE, 1);
+    uvmunmap(pagetable, 0, PGROUNDUP(sz)/PGSIZE);
   freewalk(pagetable);
 }
 
@@ -315,7 +367,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+  // char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -324,18 +376,20 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    
+    if(flags & PTE_W) {
+      flags &= ~PTE_W;
+      flags |= PTE_C; // a COW fork page
+      *pte = PTE_SET_FLAGS(*pte, flags);
+    }
+    if(uvmmap(new, i, pa, flags) < 0){
       goto err;
     }
   }
   return 0;
 
  err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
+  uvmunmap(new, 0, i / PGSIZE);
   return -1;
 }
 
@@ -366,9 +420,14 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     if(va0 >= MAXVA)
       return -1;
     pte = walk(pagetable, va0, 0);
-    if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0 ||
-       (*pte & PTE_W) == 0)
+    if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0)
       return -1;
+    // maybe it's a cow page
+    if((*pte & PTE_W) == 0) {
+      if(cowfix(pagetable, va0) < 0)
+        return -1;
+      pte = walk(pagetable, va0, 0);
+    }
     pa0 = PTE2PA(*pte);
     n = PGSIZE - (dstva - va0);
     if(n > len)
@@ -448,4 +507,39 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+// if va is in a copy-on-write page, resume the PTE_W bit, clear the PTE_C bit
+// and copy the content previously on the page to 
+// a newly allocated physical page (when needed)
+// then cause va pointing to this page.
+// return 0 on success, -1 when it's not a cow page, -2 on out-of-memory
+int
+cowfix(pagetable_t pagetable, uint64 va)
+{
+  pte_t *pte;
+  uint64 pa;
+  uint flags;
+  char *mem;
+  if(va >= myproc()->sz) // va must in [0,sz)
+    return -1;
+  if((pte = walk(pagetable, va, 0)) == 0)
+    panic("cowfix: walk");
+  if((*pte & PTE_W) || (~*pte & PTE_C) || (~*pte & PTE_V))
+    return -1;
+  pa = PTE2PA(*pte);
+  flags = (PTE_FLAGS(*pte) | PTE_W) & ~PTE_C;
+  acquire(&rcountlock);
+  uint8 rc = getrc(pa, 0, 1);
+  if(rc > 1) {
+    getrc(pa, -1, 1);
+    if((mem = kalloc()) == 0)
+      return -2;
+    memmove(mem, (void*)pa, PGSIZE);
+    *pte = PA2PTE(mem) | flags;
+    getrc((uint64)mem, 1, 1);
+  }
+  else *pte = PA2PTE(pa) | flags;
+  release(&rcountlock);
+  return 0;
 }

@@ -65,6 +65,9 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if(r_scause() == 15 && cowfix(p->pagetable, r_stval()) == 0){
+    // Store/AMO page fault
+    // ok
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
