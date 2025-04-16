@@ -3,10 +3,10 @@
 #include "types.h"
 #include "param.h"
 #include "memlayout.h"
-#include "spinlock.h"
 #include "riscv.h"
 #include "proc.h"
 #include "defs.h"
+#include "spinlock.h"
 
 #ifdef LAB_LOCK
 #define NLOCK 500
