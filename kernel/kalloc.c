@@ -18,15 +18,28 @@ struct run {
   struct run *next;
 };
 
-struct {
+struct kmemalloc{
   struct spinlock lock;
   struct run *freelist;
-} kmem;
+  int freed;
+} kmems[NCPU];
 
 void
 kinit()
 {
-  initlock(&kmem.lock, "kmem");
+  static char names[8][7] = {
+    "kmem#0",
+    "kmem#1",
+    "kmem#2",
+    "kmem#3",
+    "kmem#4",
+    "kmem#5",
+    "kmem#6",
+    "kmem#7",
+  };
+  for(int i = 0; i < NCPU; i++){
+    initlock(&kmems[i].lock, names[i]);
+  }
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -47,6 +60,7 @@ void
 kfree(void *pa)
 {
   struct run *r;
+  struct kmemalloc *kmem;
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
@@ -55,11 +69,32 @@ kfree(void *pa)
   memset(pa, 1, PGSIZE);
 
   r = (struct run*)pa;
+  push_off();
+  kmem = &kmems[cpuid()];
+  acquire(&kmem->lock);
+  kmem->freed = 1;
+  r->next = kmem->freelist;
+  kmem->freelist = r;
+  release(&kmem->lock);
+  pop_off();
+}
 
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  release(&kmem.lock);
+// find a free page in kmems[cid]
+void *
+findfree(int cid) {
+  struct run *r;
+  struct kmemalloc *kmem;
+  kmem = &kmems[cid];
+  if(atomic_read4(&kmem->freed) == 0)
+    return 0;
+  acquire(&kmem->lock);
+  r = kmem->freelist;
+  if(r)
+    kmem->freelist = r->next;
+  release(&kmem->lock);
+  if(r)
+    memset((char*)r, 5, PGSIZE); // fill with junk
+  return (void*)r;
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -69,14 +104,18 @@ void *
 kalloc(void)
 {
   struct run *r;
-
-  acquire(&kmem.lock);
-  r = kmem.freelist;
-  if(r)
-    kmem.freelist = r->next;
-  release(&kmem.lock);
-
-  if(r)
-    memset((char*)r, 5, PGSIZE); // fill with junk
+  int i, cid;
+  
+  push_off();
+  cid = cpuid();
+  r = findfree(cid);
+  pop_off();
+  i = cid;
+  while(!r) {
+    i = (i+1) % NCPU;
+    if(i == cid)
+      break;
+    r = findfree(i);
+  }
   return (void*)r;
 }

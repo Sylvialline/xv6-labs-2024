@@ -1,4 +1,4 @@
-#define LAB_LOCK
+// #define LAB_LOCK
 
 #ifdef LAB_MMAP
 typedef unsigned long size_t;

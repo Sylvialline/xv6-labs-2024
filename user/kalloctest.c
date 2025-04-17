@@ -81,7 +81,7 @@ void test1(void)
   if(n-m < 10) 
     printf("test1 OK\n");
   else
-    printf("test1 FAIL\n");
+    printf("test1 FAIL m=%d, n=%d\n", m, n);
 }
 
 

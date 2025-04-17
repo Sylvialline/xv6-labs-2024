@@ -4,9 +4,9 @@
 #include "param.h"
 #include "memlayout.h"
 #include "riscv.h"
-#include "proc.h"
 #include "defs.h"
 #include "spinlock.h"
+#include "proc.h"
 
 #ifdef LAB_LOCK
 #define NLOCK 500
@@ -191,7 +191,7 @@ statslock(char *buf, int sz) {
     if(strncmp(locks[i]->name, "bcache", strlen("bcache")) == 0 ||
        strncmp(locks[i]->name, "kmem", strlen("kmem")) == 0) {
       tot += locks[i]->nts;
-      n += snprint_lock(buf +n, sz-n, locks[i]);
+      n += snprint_lock(buf+n, sz-n, locks[i]);
     }
   }
   
