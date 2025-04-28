@@ -223,7 +223,7 @@ sys_unlink(void)
   if(writei(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
     panic("unlink: writei");
   if(ip->type == T_DIR){
-    dp->nlink--;
+    dp->nlink--; // + because ".."
     iupdate(dp);
   }
   iunlockput(dp);
@@ -242,6 +242,7 @@ bad:
   return -1;
 }
 
+// + leaves ip locked on success
 static struct inode*
 create(char *path, short type, short major, short minor)
 {
@@ -364,7 +365,7 @@ sys_open(void)
     itrunc(ip);
   }
 
-  iunlock(ip);
+  iunlock(ip); // + do not put because not "f->ip = idup(ip)" but "f->ip = ip"
   end_op();
 
   return fd;

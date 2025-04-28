@@ -108,6 +108,7 @@ bwrite(struct buf *b)
 {
   if(!holdingsleep(&b->lock))
     panic("bwrite");
+  printf("bwrite: %d\n", b->blockno);
   virtio_disk_rw(b, 1);
 }
 

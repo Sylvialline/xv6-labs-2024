@@ -312,7 +312,7 @@ ilock(struct inode *ip)
     brelse(bp);
     ip->valid = 1;
     if(ip->type == 0)
-      panic("ilock: no type");
+      panic("ilock: no type"); // + iget before ialloc, got an inum that haven't init type
   }
 }
 
@@ -502,6 +502,7 @@ readi(struct inode *ip, int user_dst, uint64 dst, uint off, uint n)
 // Returns the number of bytes successfully written.
 // If the return value is less than the requested n,
 // there was an error of some kind.
+// + increase ip->size when necessary
 int
 writei(struct inode *ip, int user_src, uint64 src, uint off, uint n)
 {
@@ -519,6 +520,7 @@ writei(struct inode *ip, int user_src, uint64 src, uint off, uint n)
       break;
     bp = bread(ip->dev, addr);
     m = min(n - tot, BSIZE - off%BSIZE);
+    printf("writei: %d %d\n", tot, m);  
     if(either_copyin(bp->data + (off % BSIZE), user_src, src, m) == -1) {
       brelse(bp);
       break;
@@ -547,6 +549,7 @@ namecmp(const char *s, const char *t)
 }
 
 // Look for a directory entry in a directory.
+// + and leave it unlocked
 // If found, set *poff to byte offset of entry.
 struct inode*
 dirlookup(struct inode *dp, char *name, uint *poff)
@@ -576,6 +579,7 @@ dirlookup(struct inode *dp, char *name, uint *poff)
 
 // Write a new directory entry (name, inum) into the directory dp.
 // Returns 0 on success, -1 on failure (e.g. out of disk blocks).
+// + do not change ip->nlink
 int
 dirlink(struct inode *dp, char *name, uint inum)
 {
@@ -645,7 +649,7 @@ skipelem(char *path, char *name)
 }
 
 // Look up and return the inode for a path name.
-// If parent != 0, return the inode for the parent and copy the final
+// If nameiparent != 0, return the inode for the parent and copy the final
 // path element into name, which must have room for DIRSIZ bytes.
 // Must be called inside a transaction since it calls iput().
 static struct inode*

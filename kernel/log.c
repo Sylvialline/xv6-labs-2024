@@ -68,16 +68,18 @@ initlog(int dev, struct superblock *sb)
 static void
 install_trans(int recovering)
 {
+  struct buf *lbuf, *dbuf;
   int tail;
 
   for (tail = 0; tail < log.lh.n; tail++) {
-    struct buf *lbuf = bread(log.dev, log.start+tail+1); // read log block
-    struct buf *dbuf = bread(log.dev, log.lh.block[tail]); // read dst
-    memmove(dbuf->data, lbuf->data, BSIZE);  // copy block to dst
+    dbuf = bread(log.dev, log.lh.block[tail]); // read dst
+    if(recovering) { // *no need to read log block if recovering is false
+      lbuf = bread(log.dev, log.start+tail+1); // read log block
+      memmove(dbuf->data, lbuf->data, BSIZE);  // copy block to dst
+      brelse(lbuf);
+    }
+    else bunpin(dbuf);
     bwrite(dbuf);  // write dst to disk
-    if(recovering == 0)
-      bunpin(dbuf);
-    brelse(lbuf);
     brelse(dbuf);
   }
 }
@@ -221,13 +223,14 @@ log_write(struct buf *b)
     panic("too big a transaction");
   if (log.outstanding < 1)
     panic("log_write outside of trans");
+  printf("log_write: %d\n", b->blockno);
 
   for (i = 0; i < log.lh.n; i++) {
     if (log.lh.block[i] == b->blockno)   // log absorption
       break;
   }
-  log.lh.block[i] = b->blockno;
   if (i == log.lh.n) {  // Add new block to log?
+    log.lh.block[i] = b->blockno;
     bpin(b);
     log.lh.n++;
   }
