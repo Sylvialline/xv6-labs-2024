@@ -16,6 +16,8 @@
 #include "file.h"
 #include "fcntl.h"
 
+#define MAXDEPTH 10
+
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -302,6 +304,25 @@ create(char *path, short type, short major, short minor)
   return 0;
 }
 
+// if ip->type == T_SYMLINK,
+// lock the real inode it refers to and return it.
+// return 0 if ip is a dangling link or depth > MAXDEPTH.
+// caller must hold ip->lock.
+static struct inode*
+follow(struct inode *ip, int depth) {
+  static char path[MAXPATH];
+  if(ip->type != T_SYMLINK) return ip;
+  if(depth > MAXDEPTH || readi(ip, 0, (uint64)path, 0, ip->size) != ip->size){
+    iunlockput(ip);
+    return 0;
+  }
+  iunlockput(ip);
+  if((ip = namei(path)) == 0)
+    return 0;
+  ilock(ip);
+  return follow(ip, depth+1);
+}
+
 uint64
 sys_open(void)
 {
@@ -329,6 +350,13 @@ sys_open(void)
       return -1;
     }
     ilock(ip);
+    if(ip->type == T_SYMLINK && !(omode & O_NOFOLLOW)){
+      ip = follow(ip, 0);
+      if(ip == 0){
+        end_op();
+        return -1;
+      }
+    }
     if(ip->type == T_DIR && omode != O_RDONLY){
       iunlockput(ip);
       end_op();
@@ -369,6 +397,29 @@ sys_open(void)
   end_op();
 
   return fd;
+}
+
+uint64
+sys_symlink(void)
+{
+  struct inode *ip;
+  char target[MAXPATH], path[MAXPATH];
+  int n;
+  if((n = argstr(0, target, MAXPATH)) < 0 || argstr(1, path, MAXPATH) < 0)
+    return -1;
+  n++; // we want nul also be written
+
+  begin_op();
+  if((ip = create(path, T_SYMLINK, 0, 0)) == 0) {
+    end_op();
+    return -1;
+  }
+
+  n -= writei(ip, 0, (uint64)target, 0, n);
+  
+  iunlockput(ip);
+  end_op();
+  return n == 0 ? 0 : -1;
 }
 
 uint64
