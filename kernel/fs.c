@@ -383,12 +383,11 @@ iunlockput(struct inode *ip)
 // return the disk block address of the bn-th block in that block
 // if there is no such block, allocates one.
 // returns 0 if out of disk space
-
 static uint
 bmaplevel(uint dev, uint *a, uint bn, int lvl)
 {
   struct buf *bp;
-  uint addr;
+  uint addr, x;
   if(a == 0)
     panic("bmaplevel");
   if(*a == 0 && (*a = balloc(dev)) == 0)
@@ -396,10 +395,12 @@ bmaplevel(uint dev, uint *a, uint bn, int lvl)
   if(lvl == 0) return *a;
   uint size = lvl == 2 ? NINDIRECT : 1;
   bp = bread(dev, *a);
-  addr = bmaplevel(dev, (uint*)bp->data + bn/size, bn%size, lvl-1);
-  log_write(bp);
+  a = (uint*)bp->data + bn/size;
+  x = *a;
+  addr = bmaplevel(dev, a, bn%size, lvl-1);
+  if(x == 0) // called in writei()
+    log_write(bp);
   brelse(bp);
-  // printf("* %d %p %d %d %u\n", dev, a, bn, lvl, addr);
   return addr;
 }
 
@@ -407,11 +408,11 @@ bmaplevel(uint dev, uint *a, uint bn, int lvl)
 // Return the disk block address of the nth block in inode ip.
 // If there is no such block, bmap allocates one.
 // returns 0 if out of disk space.
+// + if bmap() is called in readi(), it's required not to call any log_write()
 static uint
 bmap(struct inode *ip, uint bn)
 {
   uint addr;
-  // printf("# %d %d\n", ip->inum, bn);
 
   if(bn < NDIRECT){
     if((addr = ip->addrs[bn]) == 0){

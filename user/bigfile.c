@@ -17,7 +17,6 @@ main()
   }
 
   blocks = 0;
-  int max = 400;
   while(1){
     *(int*)buf = blocks;
     int cc = write(fd, buf, sizeof(buf));
@@ -26,14 +25,13 @@ main()
     blocks++;
     if (blocks % 100 == 0)
       printf(".");
-    if(blocks == max) break;
   }
 
   printf("\nwrote %d blocks\n", blocks);
-  // if(blocks != 65803) {
-  //   printf("bigfile: file is too small\n");
-  //   exit(-1);
-  // }
+  if(blocks != 65803) {
+    printf("bigfile: file is too small\n");
+    exit(-1);
+  }
   
   close(fd);
   fd = open("big.file", O_RDONLY);
@@ -44,7 +42,6 @@ main()
   }
   readblocks = 0;
   for(i = 0; i < blocks; i++){
-    printf("$ %d\n",i);
     int cc = read(fd, buf, sizeof(buf));
     if(cc <= 0){
       printf("bigfile: read error at block %d\n", i);
