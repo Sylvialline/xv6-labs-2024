@@ -223,7 +223,6 @@ log_write(struct buf *b)
     panic("too big a transaction");
   if (log.outstanding < 1)
     panic("log_write outside of trans");
-  printf("log_write: %d\n", b->blockno);
 
   for (i = 0; i < log.lh.n; i++) {
     if (log.lh.block[i] == b->blockno)   // log absorption

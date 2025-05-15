@@ -374,7 +374,35 @@ iunlockput(struct inode *ip)
 // The content (data) associated with each inode is stored
 // in blocks on the disk. The first NDIRECT block numbers
 // are listed in ip->addrs[].  The next NINDIRECT blocks are
-// listed in block ip->addrs[NDIRECT].
+// listed in block ip->addrs[NDIRECT]. The last 
+// NININDIRECT blocks are listed in blocks that are
+// list in ip->addrs[NDIRECT+1]
+
+// consider the block *a as a lvl-level indirect block
+// if *a is zero, allocate a new block to a
+// return the disk block address of the bn-th block in that block
+// if there is no such block, allocates one.
+// returns 0 if out of disk space
+
+static uint
+bmaplevel(uint dev, uint *a, uint bn, int lvl)
+{
+  struct buf *bp;
+  uint addr;
+  if(a == 0)
+    panic("bmaplevel");
+  if(*a == 0 && (*a = balloc(dev)) == 0)
+    return 0;
+  if(lvl == 0) return *a;
+  uint size = lvl == 2 ? NINDIRECT : 1;
+  bp = bread(dev, *a);
+  addr = bmaplevel(dev, (uint*)bp->data + bn/size, bn%size, lvl-1);
+  log_write(bp);
+  brelse(bp);
+  // printf("* %d %p %d %d %u\n", dev, a, bn, lvl, addr);
+  return addr;
+}
+
 
 // Return the disk block address of the nth block in inode ip.
 // If there is no such block, bmap allocates one.
@@ -382,8 +410,8 @@ iunlockput(struct inode *ip)
 static uint
 bmap(struct inode *ip, uint bn)
 {
-  uint addr, *a;
-  struct buf *bp;
+  uint addr;
+  // printf("# %d %d\n", ip->inum, bn);
 
   if(bn < NDIRECT){
     if((addr = ip->addrs[bn]) == 0){
@@ -396,38 +424,40 @@ bmap(struct inode *ip, uint bn)
   }
   bn -= NDIRECT;
 
-  if(bn < NINDIRECT){
-    // Load indirect block, allocating if necessary.
-    if((addr = ip->addrs[NDIRECT]) == 0){
-      addr = balloc(ip->dev);
-      if(addr == 0)
-        return 0;
-      ip->addrs[NDIRECT] = addr;
-    }
-    bp = bread(ip->dev, addr);
-    a = (uint*)bp->data;
-    if((addr = a[bn]) == 0){
-      addr = balloc(ip->dev);
-      if(addr){
-        a[bn] = addr;
-        log_write(bp);
-      }
-    }
-    brelse(bp);
-    return addr;
-  }
+  if(bn < NINDIRECT)
+    return bmaplevel(ip->dev, ip->addrs + NDIRECT, bn, 1);
+  bn -= NINDIRECT;
+  if(bn < NININDIRECT)
+    return bmaplevel(ip->dev, ip->addrs + NDIRECT+1, bn, 2);
 
   panic("bmap: out of range");
 }
 
+static void
+itrunclevel(uint dev, uint addr, int lvl)
+{
+  struct buf *bp;
+  uint *a;
+  if(addr == 0) return;
+  if(lvl){
+    bp = bread(dev, addr);
+    a = (uint*)bp->data;
+    for(int i = 0; i < NINDIRECT; i++){
+      if(a[i]){
+        if(lvl == 1) bfree(dev, a[i]);
+        else itrunclevel(dev, a[i], lvl-1);
+      }
+    }
+    brelse(bp);
+  }
+  bfree(dev, addr);
+}
 // Truncate inode (discard contents).
 // Caller must hold ip->lock.
 void
 itrunc(struct inode *ip)
 {
-  int i, j;
-  struct buf *bp;
-  uint *a;
+  int i;
 
   for(i = 0; i < NDIRECT; i++){
     if(ip->addrs[i]){
@@ -436,17 +466,9 @@ itrunc(struct inode *ip)
     }
   }
 
-  if(ip->addrs[NDIRECT]){
-    bp = bread(ip->dev, ip->addrs[NDIRECT]);
-    a = (uint*)bp->data;
-    for(j = 0; j < NINDIRECT; j++){
-      if(a[j])
-        bfree(ip->dev, a[j]);
-    }
-    brelse(bp);
-    bfree(ip->dev, ip->addrs[NDIRECT]);
-    ip->addrs[NDIRECT] = 0;
-  }
+  itrunclevel(ip->dev, ip->addrs[NDIRECT], 1);
+  itrunclevel(ip->dev, ip->addrs[NDIRECT+1], 2);
+  ip->addrs[NDIRECT] = ip->addrs[NDIRECT+1] = 0;
 
   ip->size = 0;
   iupdate(ip);
@@ -520,7 +542,6 @@ writei(struct inode *ip, int user_src, uint64 src, uint off, uint n)
       break;
     bp = bread(ip->dev, addr);
     m = min(n - tot, BSIZE - off%BSIZE);
-    printf("writei: %d %d\n", tot, m);  
     if(either_copyin(bp->data + (off % BSIZE), user_src, src, m) == -1) {
       brelse(bp);
       break;
