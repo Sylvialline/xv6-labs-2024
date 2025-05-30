@@ -11,6 +11,7 @@ void fork_test();
 void more_test();
 char buf[PGSIZE];
 
+#undef MAP_FAILED
 #define MAP_FAILED ((char *) -1)
 
 int

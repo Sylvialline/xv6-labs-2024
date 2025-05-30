@@ -59,6 +59,18 @@ argint(int n, int *ip)
   *ip = argraw(n);
 }
 
+void
+arglong(int n, long *ip)
+{
+  *ip = argraw(n);
+}
+
+void
+argulong(int n, unsigned long *ip)
+{
+  *ip = argraw(n);
+}
+
 // Retrieve an argument as a pointer.
 // Doesn't check for legality, since
 // copyin/copyout will do that.

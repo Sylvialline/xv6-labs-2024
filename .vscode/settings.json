@@ -3,6 +3,20 @@
     "fcntl.h": "c",
     "riscv.h": "c",
     "param.h": "c",
-    "types.h": "c"
+    "types.h": "c",
+    "defs.h": "c",
+    "bit": "c",
+    "concepts": "c",
+    "cstdio": "c",
+    "type_traits": "c",
+    "new": "c",
+    "typeinfo": "c",
+    "memlayout.h": "c",
+    "spinlock.h": "c",
+    "proc.h": "c",
+    "syscall.h": "c",
+    "file.h": "c",
+    "fs.h": "c",
+    "sleeplock.h": "c"
   }
 }

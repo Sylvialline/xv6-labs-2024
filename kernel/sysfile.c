@@ -504,14 +504,57 @@ sys_pipe(void)
   return 0;
 }
 
+// alloc a vma slot. return 0 for up to limit.
+static struct vma*
+allocvma()
+{
+  struct vma *v, *vmas = myproc()->vmas;
+  for(v = vmas; v < &vmas[MAX_VMA]; v++) {
+    if(v->start == 0)
+      return v;
+  }
+  return 0;
+}
+
+// return MAP_FAILED on error
 uint64
 sys_mmap(void)
 {
-  return 0;
+  struct proc *p = myproc();
+  struct vma *v;
+
+  size_t len;
+
+  if((v = allocvma()) == 0)
+    return MAP_FAILED;
+    
+  if(argfd(4, 0, &v->f) < 0){
+    return MAP_FAILED;
+  }
+  if(!v->f->readable){ 
+    // fd with O_WRONLY does not support mmap
+    return MAP_FAILED;
+  }
+  argint(2, &v->prot);
+  argint(3, &v->flags);
+  if(v->prot & PROT_WRITE && !v->f->writable && v->flags != MAP_PRIVATE) {
+    // cannot write
+    return MAP_FAILED;
+  }
+  v->f = filedup(v->f);
+
+  argulong(1, &len);
+  v->start = PGROUNDUP(p->sz); // fill start, install vma
+  v->end = v->start + len;
+  p->sz = PGROUNDUP(v->end);
+  
+  arglong(5, &v->off);
+
+  return v->start;
 }
 
 uint64
 sys_munmap(void)
 {
-  return 0;
+  return MAP_FAILED;
 }

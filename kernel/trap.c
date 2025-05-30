@@ -3,8 +3,12 @@
 #include "memlayout.h"
 #include "riscv.h"
 #include "spinlock.h"
+#include "sleeplock.h"
 #include "proc.h"
 #include "defs.h"
+#include "fs.h"
+#include "file.h"
+#include "fcntl.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -27,6 +31,56 @@ void
 trapinithart(void)
 {
   w_stvec((uint64)kernelvec);
+}
+
+// mmap page fault handler
+// if the page fault is not caused by mmap, return 0
+// else return 1
+static int
+pagefault()
+{
+  uint64 scause = r_scause();
+  uint64 addr = r_stval();
+  struct proc *p = myproc();
+  struct vma *v, *vmas = p->vmas;
+  struct inode *ip;
+  int load = scause == 0xdL;  // Load page fault
+  int store = scause == 0xfL; // Store/AMO page fault
+  char *mem;
+  int perm;
+
+  if(!load && !store)  
+    return 0;
+  
+  for(v = vmas; v < &vmas[MAX_VMA]; v++) {
+    if(v->start && addr >= v->start && addr < v->end)
+      break;
+  }
+  if(v == vmas + MAX_VMA)
+    return 0; // addr does not belong to any vma
+  
+  if(store && !(v->prot & PROT_WRITE))
+    return 0; // permission mismatch
+  
+  if((mem = (char*)kalloc()) == 0)
+    return 0;
+  memset(mem, 0, PGSIZE);
+  
+  addr = PGROUNDDOWN(addr);
+  ip = v->f->ip;
+  ilock(ip);
+  if(readi(ip, 0, (uint64)mem, addr - v->start + v->off, PGSIZE) < 0){
+    kfree(mem);
+    iunlock(ip);
+    return 0;
+  }
+  iunlock(ip);
+
+  perm = PTE_U | PTE_R;
+  if(v->prot & PROT_WRITE) perm |= PTE_W;
+  
+  mappages(p->pagetable, addr, PGSIZE, (uint64)mem, perm);
+  return 1;
 }
 
 //
@@ -66,6 +120,8 @@ usertrap(void)
 
     syscall();
   } else if((which_dev = devintr()) != 0){
+    // ok
+  } else if(pagefault() != 0){
     // ok
   } else {
     printf("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);

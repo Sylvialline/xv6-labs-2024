@@ -149,6 +149,7 @@ found:
   return p;
 }
 
+
 // free a proc structure and the data hanging from it,
 // including user pages.
 // p->lock must be held.
@@ -340,6 +341,26 @@ reparent(struct proc *p)
   }
 }
 
+void
+clearvma(struct vma *v){
+  if(v->start) {
+    if(v->f)
+      fileclose(v->f);
+    v->f = 0;
+    v->start = 0;
+  }
+}
+
+// clear vma field, close the file it pinned
+static void
+clearvmas(struct vma vmas[])
+{
+  struct vma *v;
+  for(v = vmas; v < &vmas[MAX_VMA]; v++) {
+    clearvma(v);
+  }
+}
+
 // Exit the current process.  Does not return.
 // An exited process remains in the zombie state
 // until its parent calls wait().
@@ -359,6 +380,8 @@ exit(int status)
       p->ofile[fd] = 0;
     }
   }
+
+  clearvmas(p->vmas);
 
   begin_op();
   iput(p->cwd);
