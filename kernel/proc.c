@@ -309,6 +309,14 @@ fork(void)
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
 
+  // copy the parent's vmas to child
+  // increment reference counts on vma's file
+  for(i = 0; i < MAX_VMA; i++)
+    if(p->vmas[i].start) {
+      np->vmas[i] = p->vmas[i];
+      filedup(np->vmas[i].f);
+    }
+
   safestrcpy(np->name, p->name, sizeof(p->name));
 
   pid = np->pid;
@@ -341,23 +349,14 @@ reparent(struct proc *p)
   }
 }
 
-void
-clearvma(struct vma *v){
-  if(v->start) {
-    if(v->f)
-      fileclose(v->f);
-    v->f = 0;
-    v->start = 0;
-  }
-}
-
-// clear vma field, close the file it pinned
+// clear vma field, close the file it pinned,
+// and remove the mappings
 static void
-clearvmas(struct vma vmas[])
+vmasunmap(struct vma vmas[])
 {
   struct vma *v;
-  for(v = vmas; v < &vmas[MAX_VMA]; v++) {
-    clearvma(v);
+  for(v = vmas; v < &vmas[MAX_VMA]; v++) if(v->start) {
+    munmap((void*)v->start, v->end - v->start);
   }
 }
 
@@ -381,7 +380,7 @@ exit(int status)
     }
   }
 
-  clearvmas(p->vmas);
+  vmasunmap(p->vmas);
 
   begin_op();
   iput(p->cwd);

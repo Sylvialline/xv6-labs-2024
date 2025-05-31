@@ -17,6 +17,8 @@
     "syscall.h": "c",
     "file.h": "c",
     "fs.h": "c",
-    "sleeplock.h": "c"
+    "sleeplock.h": "c",
+    "limits": "c",
+    "stat.h": "c"
   }
 }

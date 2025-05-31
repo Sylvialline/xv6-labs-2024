@@ -556,5 +556,150 @@ sys_mmap(void)
 uint64
 sys_munmap(void)
 {
-  return MAP_FAILED;
+  uint64 addr;
+  size_t len;
+  argulong(0, &addr);
+  argulong(1, &len);
+  return munmap((void*)addr, len);
+}
+
+
+// mmap page fault handler
+// if the page fault is not caused by mmap, return 0
+// else return 1
+int
+pagefault()
+{
+  uint64 scause = r_scause();
+  uint64 addr = r_stval();
+  struct vma *v;
+  struct inode *ip;
+  int load = scause == 0xdL;  // Load page fault
+  int store = scause == 0xfL; // Store/AMO page fault
+  char *mem;
+  int perm;
+
+  if(!load && !store)  
+    return 0;
+  
+  if((v = whichvma(addr)) == 0)
+    return 0; // addr does not belong to any vma
+  
+  if(store && !(v->prot & PROT_WRITE))
+    return 0; // permission mismatch
+  
+  if((mem = (char*)kalloc()) == 0)
+    return 0;
+  memset(mem, 0, PGSIZE);
+  
+  addr = PGROUNDDOWN(addr);
+  ip = v->f->ip;
+  ilock(ip);
+  if(readi(ip, 0, (uint64)mem, addr - v->start + v->off, PGSIZE) < 0){
+    kfree(mem);
+    iunlock(ip);
+    return 0;
+  }
+  iunlock(ip);
+
+  perm = PTE_U | PTE_R;
+  if(v->prot & PROT_WRITE) perm |= PTE_W;
+  
+  mappages(myproc()->pagetable, addr, PGSIZE, (uint64)mem, perm);
+  return 1;
+}
+
+
+// which vma is addr in?
+// return 0 for not a vma address
+struct vma *
+whichvma(uint64 addr)
+{
+  struct vma *v, *vmas = myproc()->vmas;
+  for(v = vmas; v < &vmas[MAX_VMA]; v++)
+    if(v->start && addr >= v->start && addr < v->end)
+      return v;
+  return 0;
+}
+
+// close the file
+// do not remove the mappings
+void
+clearvma(struct vma *v)
+{
+  if(v->start) {
+    if(v->f)
+      fileclose(v->f);
+    v->f = 0;
+    v->start = 0;
+  }
+}
+
+#define max(a,b) (a) > (b) ? (a) : (b)
+#define min(a,b) (a) < (b) ? (a) : (b)
+
+int
+munmap(void *addr, size_t len) {
+
+  uint64 s, t, a;
+  struct vma *v;
+  pte_t *pte;
+  pagetable_t pgtbl;
+  struct inode *ip;
+  s = (uint64)addr;
+  if((v = whichvma(s)) == 0)
+    return MAP_FAILED;
+  t = s + len;
+
+  if(s > v->start && t < v->end)
+    return MAP_FAILED; // punched a hole
+  
+  if(s < v->start || t > v->end)
+    return MAP_FAILED; // unmap something not mapped
+  
+  pgtbl = myproc()->pagetable;
+  ip = v->f->ip;
+  
+  for(a = PGROUNDDOWN(s); a < t; a += PGSIZE) {
+    if((pte = walk(pgtbl, a, 0)) == 0 || (*pte & PTE_V) == 0){
+      // lazy allocation. ok.
+      continue;
+    }
+    if(PTE_FLAGS(*pte) == PTE_V)
+      panic("munmap: not a leaf");
+
+    uint64 l = max(a, s), r = min(a+PGSIZE, t);
+    uint64 pa = PTE2PA(*pte);
+
+    if(v->flags == MAP_SHARED && v->prot & PROT_WRITE) { // write back
+      uint off = l - v->start + v->off;
+      // modifications on mappings cannot increase the size of the underlying file
+      int size = min(r - l, ip->size - off);
+      // printf("# write %lu %lu %lu %lu %lu\n", v->start, v->end, a, l, r);
+      if(size > 0) {
+        begin_op();
+        ilock(ip);
+        int n = writei(ip, 0, pa + l - a, off, (uint)size);
+        iunlock(ip);
+        end_op();
+        if(n < size)
+          return MAP_FAILED;
+      }
+      
+    }
+    if((l==a || l==v->start) && (r==a+PGSIZE || r==v->end)) {
+      // remove the mapping
+      kfree((void*)pa);
+      *pte = 0;
+    }
+  }
+
+  if(s == v->start && t == v->end)
+    clearvma(v);
+  else if(s == v->start) {
+    v->start += len;
+    v->off += len;
+  }
+  else v->end -= len;
+  return 0;
 }

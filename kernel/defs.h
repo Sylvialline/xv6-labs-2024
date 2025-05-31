@@ -111,7 +111,6 @@ void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
-void            clearvma(struct vma*);
 
 // swtch.S
 void            swtch(struct context*, struct context*);
@@ -152,6 +151,12 @@ void            argaddr(int, uint64 *);
 int             fetchstr(uint64, char*, int);
 int             fetchaddr(uint64, uint64*);
 void            syscall();
+
+// sysfile.c
+int             pagefault();
+void            clearvma(struct vma *v);
+struct vma*     whichvma(uint64 addr);
+int             munmap(void *addr, size_t len);
 
 // trap.c
 extern uint     ticks;
