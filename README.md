@@ -35,17 +35,13 @@ git switch mmap
 
 实验依赖 RISC-V 工具链、QEMU、make 和 Python 3。实验分支通常使用 `make qemu` 运行、`make grade` 评分；切换不同实验后先执行 `make clean`。参考仓库和 xv6 基础仓库不保证包含每个实验的评分脚本。
 
-## 相关留档
+## 实验进度留档
 
 | 仓库 | 用途 |
 | --- | --- |
 | [xv6-labs-2021](https://github.com/Sylvialline/xv6-labs-2021) | Unix utilities |
 | [xv6-labs-2023](https://github.com/Sylvialline/xv6-labs-2023) | syscall、pgtbl、traps、thread |
 | [xv6-labs-2024](https://github.com/Sylvialline/xv6-labs-2024) | cow、lock、fs、mmap |
-| [xv6-labs-2020](https://github.com/Sylvialline/xv6-labs-2020) | 2020 starter 和编译适配 |
-| [xv6-labs-2024-tmp](https://github.com/Sylvialline/xv6-labs-2024-tmp) | 2024 临时副本和 mmap stash |
-| [xv6-riscv](https://github.com/Sylvialline/xv6-riscv) | xv6 基础源码和调试配置 |
-| [MIT6.S081-2020fall-reference](https://github.com/Sylvialline/MIT6.S081-2020fall-reference) | PKUFlyingPig 的参考解答 |
 
 目前没有个人实现的 lazy allocation 或 network 实验提交；仓库中的官方起始分支及参考解答不计入个人实验完成进度。
 
