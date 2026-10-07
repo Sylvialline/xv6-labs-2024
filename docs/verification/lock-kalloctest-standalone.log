@@ -1,0 +1,16 @@
+make: 'kernel/kernel' is up to date.
+== Test running kalloctest == (57.6s) 
+== Test   kalloctest: test1 == 
+  kalloctest: test1: OK 
+== Test   kalloctest: test2 == 
+  kalloctest: test2: OK 
+== Test   kalloctest: test3 == 
+  kalloctest: test3: FAIL 
+    ...
+         lock: kmem#1: #test-and-set 9500 #acquire() 639967
+         lock: pr: #test-and-set 6780 #acquire() 5
+         tot= 71028
+         test3 FAIL m 0 n 71028
+         $ qemu-system-riscv64: terminating on signal 15 from pid 623 (make)
+    MISSING '^test3 OK$'
+== Test kalloctest: sbrkmuch == kalloctest: sbrkmuch: OK (10.2s) 
